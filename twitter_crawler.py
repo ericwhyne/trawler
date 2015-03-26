@@ -161,6 +161,43 @@ class CrawlTwitterTimelines:
             if len(more_tweets) < MINIMUM_TWEETS_REQUIRED_FOR_MORE_API_CALLS:
                 return tweets
 
+    def get_all_timeline_tweets_for_id_between_ids(self, user_id, since_id, max_id):
+        """
+        Retrieves all Tweets from a user's timeline since the specified Tweet ID
+        based on this procedure:
+          https://dev.twitter.com/docs/working-with-timelines
+        """
+        # This function stops requesting additional Tweets from the timeline only
+        # if the most recent number of Tweets retrieved is less than 100.
+        #
+        # This threshold may need to be adjusted.
+        #
+        # While we request 200 Tweets with each API, the number of Tweets we retrieve
+        # will often be less than 200 because, for example, "suspended or deleted
+        # content is removed after the count has been applied."  See the API
+        # documentation for the 'count' parameter for more info:
+        #   https://dev.twitter.com/docs/api/1.1/get/statuses/user_timeline
+        MINIMUM_TWEETS_REQUIRED_FOR_MORE_API_CALLS = 100
+
+        self._logger.info("Retrieving Tweets for user '%s'" % user_id)
+
+        # Retrieve first batch of Tweets
+        tweets = self._twitter_endpoint.get_data(user_id=user_id, count=200, since_id=since_id, max_id=max_id)
+        self._logger.info("  Retrieved first %d Tweets for user '%s'" % (len(tweets), user_id))
+
+        if len(tweets) < MINIMUM_TWEETS_REQUIRED_FOR_MORE_API_CALLS:
+            return tweets
+
+        # Retrieve rest of Tweets
+        while 1:
+            max_id = int(tweets[-1]['id']) - 1 #It's okay that this adjusts the max_id, since we are going backwards in time
+            more_tweets = self._twitter_endpoint.get_data(user_id=user_id, count=200, max_id=max_id, since_id=since_id)
+            tweets += more_tweets
+            self._logger.info("  Retrieved %d Tweets for user '%s' with max_id='%d'" % (len(more_tweets), user_id, since_id))
+
+            if len(more_tweets) < MINIMUM_TWEETS_REQUIRED_FOR_MORE_API_CALLS:
+                return tweets
+
 
 
 class FindFriendFollowers:
