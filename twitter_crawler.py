@@ -124,6 +124,18 @@ class CrawlTwitterTimelines:
             if len(more_tweets) < MINIMUM_TWEETS_REQUIRED_FOR_MORE_API_CALLS:
                 return tweets
 
+    def get_most_recent_tweets(self, screen_name):
+        """
+        Makes a single call to the user's timeline to obtain the most recent
+        (up to 200) tweets. Great for getting a better snapshot of user behavior
+        than available from a single tweet.
+        """
+        self._logger.info("Retrieving Tweets for user '%s'" % screen_name)
+
+        tweets = self._twitter_endpoint.get_data(screen_name=screen_name,count=200)
+        self._logger.info("  Retrieved first %d Tweets for user '%s'" % (len(tweets),screen_name))
+        return tweets
+
     def get_all_timeline_tweets_for_screen_name_since(self, screen_name, since_id):
         """
         Retrieves all Tweets from a user's timeline since the specified Tweet ID
@@ -409,3 +421,21 @@ class RateLimitedTwitterEndpoint:
         rate_limit_ends = datetime.datetime.fromtimestamp(self._current_rate_limit_window_ends).strftime("%Y-%m-%d %H:%M:%S")
         self._logger.info("Rate limit status for '%s': %d calls remaining until %s (for next %d seconds)" % \
                              (self._twitter_api_endpoint, self._api_calls_remaining_for_current_window, rate_limit_ends, dt))
+
+
+def get_connection( consumer_key, consumer_secret):
+    ACCESS_TOKEN = Twython(consumer_key, consumer_secret, oauth_version=2).obtain_access_token()
+    twython = Twython(consumer_key, access_token=ACCESS_TOKEN)
+    return twython
+
+def get_timeline_crawler( twython, logger):
+    """Requires a Twython instance passed to it, obtain such
+    from `get_connection`"""
+    timeline_crawler = CrawlTwitterTimelines(twython, logger)
+    return timeline_crawler
+
+def get_friend_follower_crawler( twython, logger):
+    """Requires a Twython instance passed to it, obtain such
+    from `get_connection`"""
+    ff_finder = FindFriendFollowers(twython, logger)
+    return ff_finder
