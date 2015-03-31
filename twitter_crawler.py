@@ -6,9 +6,13 @@ Shared classes and functions for crawling Twitter
 import codecs
 import datetime
 import itertools
-import json
 import logging
 import time
+
+try:
+    import ujson as json #much quicker
+except:
+    import json
 
 # Third party modules
 from twython import Twython, TwythonError
@@ -136,7 +140,7 @@ class CrawlTwitterTimelines:
         self._logger.info("  Retrieved first %d Tweets for user '%s'" % (len(tweets),screen_name))
         return tweets
 
-    def get_all_timeline_tweets_for_screen_name_since(self, screen_name, since_id):
+    def get_all_timeline_tweets_for_screen_name_since(self, screen_name, since_id,max_id=None):
         """
         Retrieves all Tweets from a user's timeline since the specified Tweet ID
         based on this procedure:
@@ -157,15 +161,19 @@ class CrawlTwitterTimelines:
         self._logger.info("Retrieving Tweets for user '%s'" % screen_name)
 
         # Retrieve first batch of Tweets
-        tweets = self._twitter_endpoint.get_data(screen_name=screen_name, count=200, since_id=since_id)
-        self._logger.info("  Retrieved first %d Tweets for user '%s'" % (len(tweets), screen_name))
+        if not max_id:
+            tweets = self._twitter_endpoint.get_data(screen_name=screen_name, count=200, since_id=since_id)
+            self._logger.info("  Retrieved first %d Tweets for user '%s'" % (len(tweets), screen_name))
 
-        if len(tweets) < MINIMUM_TWEETS_REQUIRED_FOR_MORE_API_CALLS:
-            return tweets
+            if len(tweets) < MINIMUM_TWEETS_REQUIRED_FOR_MORE_API_CALLS:
+                return tweets
+        else:
+            tweets = []
 
         # Retrieve rest of Tweets
         while 1:
-            max_id = int(tweets[-1]['id']) - 1
+            if tweets: #Will only trigger 
+                max_id = int(tweets[-1]['id']) - 1
             more_tweets = self._twitter_endpoint.get_data(screen_name=screen_name, count=200, max_id=max_id, since_id=since_id)
             tweets += more_tweets
             self._logger.info("  Retrieved %d Tweets for user '%s' with max_id='%d'" % (len(more_tweets), screen_name, since_id))
