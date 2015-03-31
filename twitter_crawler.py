@@ -230,7 +230,12 @@ class FindFriendFollowers:
         self._friend_endpoint = RateLimitedTwitterEndpoint(twython, "friends/ids", logger=self._logger)
         self._follower_endpoint = RateLimitedTwitterEndpoint(twython, "followers/ids", logger=self._logger)
         self._user_lookup_endpoint = RateLimitedTwitterEndpoint(twython, "users/lookup", logger=self._logger)
+        self.calls_remaining = 1
 
+    def api_calls_remaining(self):
+        return min(self._friend_endpoint.api_calls_remaining_for_current_window,
+                   self._follower_endpoint.api_calls_remaining_for_current_window,
+                   self._user_lookup_endpoint.api_calls_remaining_for_current_window)
 
     def get_ff_ids_for_screen_name(self, screen_name):
         """
@@ -338,7 +343,7 @@ class RateLimitedTwitterEndpoint:
 
     def _get_data_with_backoff(self, backoff, **twitter_api_parameters):
         self._sleep_if_rate_limit_reached()
-        self._api_calls_remaining_for_current_window -= 1
+        self.api_calls_remaining_for_current_window -= 1
         try:
             return self._twython.get(self._twitter_api_endpoint, params=twitter_api_parameters)
         except TwythonError as e:
@@ -350,7 +355,7 @@ class RateLimitedTwitterEndpoint:
             # Update rate limit status if exception is 'Too Many Requests'
             if e.error_code == 429:
                 self._logger.error("Rate limit exceeded for '%s'. Number of expected remaining API calls for current window: %d" %
-                                  (self._twitter_api_endpoint, self._api_calls_remaining_for_current_window + 1))
+                                  (self._twitter_api_endpoint, self.api_calls_remaining_for_current_window + 1))
                 time.sleep(backoff)
                 self._update_rate_limit_status()
                 return self._get_data_with_backoff(backoff*2, **twitter_api_parameters)
@@ -388,7 +393,7 @@ class RateLimitedTwitterEndpoint:
 
 
     def _sleep_if_rate_limit_reached(self):
-        if self._api_calls_remaining_for_current_window < 1:
+        if self.api_calls_remaining_for_current_window < 1:
             current_time = time.time()
             seconds_to_sleep = self._current_rate_limit_window_ends - current_time
 
@@ -423,12 +428,12 @@ class RateLimitedTwitterEndpoint:
 
         self._current_rate_limit_window_ends = rate_limit_status['resources'][self._twitter_api_resource][self._twitter_api_endpoint_with_prefix]['reset']
 
-        self._api_calls_remaining_for_current_window = rate_limit_status['resources'][self._twitter_api_resource][self._twitter_api_endpoint_with_prefix]['remaining']
+        self.api_calls_remaining_for_current_window = rate_limit_status['resources'][self._twitter_api_resource][self._twitter_api_endpoint_with_prefix]['remaining']
 
         dt = int(self._current_rate_limit_window_ends - time.time())
         rate_limit_ends = datetime.datetime.fromtimestamp(self._current_rate_limit_window_ends).strftime("%Y-%m-%d %H:%M:%S")
         self._logger.info("Rate limit status for '%s': %d calls remaining until %s (for next %d seconds)" % \
-                             (self._twitter_api_endpoint, self._api_calls_remaining_for_current_window, rate_limit_ends, dt))
+                             (self._twitter_api_endpoint, self.api_calls_remaining_for_current_window, rate_limit_ends, dt))
 
 
 def get_connection( consumer_key, consumer_secret):
