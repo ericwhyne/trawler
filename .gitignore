@@ -1,2 +1,4 @@
 *.pyc
 *~
+*#
+twitter_oauth_settings.py
