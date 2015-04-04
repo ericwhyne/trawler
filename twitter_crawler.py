@@ -220,6 +220,7 @@ class CrawlTwitterTimelines:
 
 
 
+import datetime as dt
 class FindFriendFollowers:
     def __init__(self, twython, logger=None):
         if logger is None:
@@ -231,8 +232,16 @@ class FindFriendFollowers:
         self._follower_endpoint = RateLimitedTwitterEndpoint(twython, "followers/ids", logger=self._logger)
         self._user_lookup_endpoint = RateLimitedTwitterEndpoint(twython, "users/lookup", logger=self._logger)
         self.calls_remaining = 1
+        self.last_checked_status = dt.datetime.now()
 
     def api_calls_remaining(self):
+        now = dt.datetime.now()
+        #If it's been more than 7 minutes, go check the status before blindly returning
+        if (now - self.last_checked_status) > dt.timedelta(minutes=7):
+            self.last_checked_status = dt.datetime.now()
+            self._friend_endpoint.update_rate_limit_status()
+            self._follower_endpoint.update_rate_limit_status()
+            self._user_lookup_endpoint.update_rate_limit_status()
         return min(self._friend_endpoint.api_calls_remaining_for_current_window,
                    self._follower_endpoint.api_calls_remaining_for_current_window,
                    self._user_lookup_endpoint.api_calls_remaining_for_current_window)
@@ -278,8 +287,6 @@ class FindFriendFollowers:
             for user in users:
                 ff_screen_names.append(user[u'screen_name'])
         return ff_screen_names
-
-
 
 class RateLimitedTwitterEndpoint:
     """
@@ -329,6 +336,8 @@ class RateLimitedTwitterEndpoint:
 
         self._update_rate_limit_status()
 
+    def update_rate_limit_status(self):
+        return self._update_rate_limit_status()
 
     def get_data(self, **twitter_api_parameters):
         """
