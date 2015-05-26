@@ -8,6 +8,7 @@ import datetime
 import itertools
 import logging
 import time
+import gzip
 
 try:
     import ujson as json #much quicker
@@ -55,28 +56,35 @@ def grouper(iterable, n, fillvalue=None):
     return itertools.izip_longest(fillvalue=fillvalue, *args)
 
 
-def save_screen_names_to_file(screen_names, filename, logger):
+def save_screen_names_to_file(screen_names, filename, logger=None):
     """
     Saves a list of Twitter screen names to a text file with one
     screen name per line.
     """
-    logger.info("Saving %d screen names to file '%s'" % (len(screen_names), filename))
+    if logger:
+        logger.info("Saving %d screen names to file '%s'" % (len(screen_names), filename))
     f = codecs.open(filename, 'w', 'utf-8')
     for screen_name in screen_names:
         f.write("%s\n" % screen_name)
     f.close()
 
 
-def save_tweets_to_json_file(tweets, json_filename):
+def save_tweets_to_json_file(tweets, json_filename, gzip_out=False):
     """
     Takes a Python dictionary of Tweets from the Twython API, and
     saves the Tweets to a JSON file, storing one JSON object per
     line.
+    `gzip_out=True` will write it to a gzip file, rather than a flat file
     """
-    json_file = codecs.open(json_filename, "w", "utf-8")
-    for tweet in tweets:
-        json_file.write("%s\n" % json.dumps(tweet))
-    json_file.close()
+    if gzip_out:
+        OUT = gzip.open(json_filename, 'wb')
+        for tweet in tweets:
+            OUT.write(unicode("%s\n" % json.dumps(tweet)).encode('utf-8'))
+    else:
+        json_file = codecs.open(json_filename, "w", "utf-8")
+        for tweet in tweets:
+            json_file.write("%s\n" % json.dumps(tweet))
+        json_file.close()
 
 
 
@@ -288,6 +296,69 @@ class FindFriendFollowers:
                 ff_screen_names.append(user[u'screen_name'])
         return ff_screen_names
 
+
+class FindFollowers:
+    def __init__(self, twython, logger=None):
+        if logger is None:
+            self._logger = get_console_info_logger()
+        else:
+            self._logger = logger
+
+        self._follower_endpoint = RateLimitedTwitterEndpoint(twython, "followers/ids", logger=self._logger)
+        self._user_lookup_endpoint = RateLimitedTwitterEndpoint(twython, "users/lookup", logger=self._logger)
+        self.calls_remaining = 1
+        self.last_checked_status = dt.datetime.now()
+
+    def api_calls_remaining(self):
+        now = dt.datetime.now()
+        #If it's been more than 7 minutes, go check the status before blindly returning
+        if (now - self.last_checked_status) > dt.timedelta(minutes=7):
+            self.last_checked_status = dt.datetime.now()
+            self._follower_endpoint.update_rate_limit_status()
+            self._user_lookup_endpoint.update_rate_limit_status()
+        return min(self._follower_endpoint.api_calls_remaining_for_current_window,
+                   self._user_lookup_endpoint.api_calls_remaining_for_current_window)
+
+    def get_follower_ids_for_screen_name(self, screen_name):
+        """
+        Returns Twitter user IDs for users who are Followers of
+        the specified screen_name.
+
+        The 'followers/ids' endpoint return at most 5000 IDs,
+        so IF a user has more than 5000 followers, this function WILL
+        NOT RETURN THE CORRECT ANSWER
+        """
+        try:
+            follower_ids = self._follower_endpoint.get_data(screen_name=screen_name)[u'ids']
+        except TwythonError as e:
+            if e.error_code == 404:
+                self._logger.warn("HTTP 404 error - Most likely, Twitter user '%s' no longer exists" % screen_name)
+            elif e.error_code == 401:
+                self._logger.warn("HTTP 401 error - Most likely, Twitter user '%s' no longer publicly accessible" % screen_name)
+            else:
+                # Unhandled exception
+                raise e
+            follower_ids = []
+
+        return follower_ids
+
+
+    def get_follower_screen_names_for_screen_name(self, screen_name):
+        """
+        Returns Twitter screen names for users who are Followers
+        of the specified screen_name.
+        """
+        follower_ids = self.get_follower_ids_for_screen_name(screen_name)
+
+        follower_screen_names = []
+        # The Twitter API allows us to look up info for 100 users at a time
+        for follower_id_subset in grouper(follower_ids, 100):
+            user_ids = ','.join([str(id) for id in follower_id_subset if id is not None])
+            users = self._user_lookup_endpoint.get_data(user_id=user_ids, entities=False)
+            for user in users:
+                follower_screen_names.append(user[u'screen_name'])
+        return follower_screen_names
+
 class RateLimitedTwitterEndpoint:
     """
     Class used to retrieve data from a Twitter API endpoint without
@@ -461,3 +532,9 @@ def get_friend_follower_crawler( twython, logger):
     from `get_connection`"""
     ff_finder = FindFriendFollowers(twython, logger)
     return ff_finder
+
+def get_follower_crawler( twython, logger):
+    """Requires a Twython instance passed to it, obtain such
+    from `get_connection`"""
+    follower_finder = FindFollowers(twython, logger)
+    return follower_finder
