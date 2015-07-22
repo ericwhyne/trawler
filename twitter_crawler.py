@@ -47,6 +47,20 @@ def get_screen_names_from_file(filename):
     screen_name_file.close()
     return screen_names
 
+def get_ids_from_file(filename):
+    """
+    Opens a text file containing one Twitter `user_id` per line,
+    returns a list of the properly casted `user_id`s.
+    """
+    id_file = codecs.open(filename, "r", "utf-8")
+    ids = []
+    for line in id_file.readlines():
+        stripped = line.strip()
+        if stripped:
+            ids.append(int(stripped))
+    id_file.close()
+    return ids
+
 
 def grouper(iterable, n, fillvalue=None):
     """Collect data into fixed-length chunks or blocks"""
@@ -98,6 +112,10 @@ class CrawlTwitterTimelines:
             self._logger = logger
 
         self._twitter_endpoint = RateLimitedTwitterEndpoint(twython, "statuses/user_timeline", logger=self._logger)
+
+###
+### Accessing the users by `screen_name`
+###
 
 
     def get_all_timeline_tweets_for_screen_name(self, screen_name):
@@ -189,6 +207,97 @@ class CrawlTwitterTimelines:
             if len(more_tweets) < MINIMUM_TWEETS_REQUIRED_FOR_MORE_API_CALLS:
                 return tweets
 
+
+###
+### Accessing the users by `user_id`
+###
+
+
+    def get_all_timeline_tweets_for_id(self, user_id):
+        """
+        Retrieves all Tweets from a user's timeline based on this procedure:
+          https://dev.twitter.com/docs/working-with-timelines
+        """
+        # This function stops requesting additional Tweets from the timeline only
+        # if the most recent number of Tweets retrieved is less than 100.
+        #
+        # While we request 200 Tweets with each API, the number of Tweets we retrieve
+        # will often be less than 200 because, for example, "suspended or deleted
+        # content is removed after the count has been applied."  See the API
+        # documentation for the 'count' parameter for more info:
+        #   https://dev.twitter.com/docs/api/1.1/get/statuses/user_timeline
+        MINIMUM_TWEETS_REQUIRED_FOR_MORE_API_CALLS = 100
+
+        self._logger.info("Retrieving Tweets for user_id '%s'" % user_id)
+
+        # Retrieve first batch of Tweets
+        tweets = self._twitter_endpoint.get_data(user_id=user_id, count=200)
+        self._logger.info("  Retrieved first %d Tweets for user_id '%s'" % (len(tweets), user_id))
+
+        if len(tweets) < MINIMUM_TWEETS_REQUIRED_FOR_MORE_API_CALLS:
+            return tweets
+
+        # Retrieve rest of Tweets
+        while 1:
+            max_id = int(tweets[-1]['id']) - 1
+            more_tweets = self._twitter_endpoint.get_data(user_id=user_id, count=200, max_id=max_id)
+            tweets += more_tweets
+            self._logger.info("  Retrieved %d Tweets for user '%s' with max_id='%d'" % (len(more_tweets), user_id, max_id))
+
+            if len(more_tweets) < MINIMUM_TWEETS_REQUIRED_FOR_MORE_API_CALLS:
+                return tweets
+
+    def get_most_recent_tweets_by_id(self, user_id):
+        """
+        Makes a single call to the user's timeline to obtain the most recent
+        (up to 200) tweets. Great for getting a better snapshot of user behavior
+        than available from a single tweet.
+        """
+        self._logger.info("Retrieving Tweets for user_id '%s'" % user_id)
+
+        tweets = self._twitter_endpoint.get_data(user_id=user_id,count=200)
+        self._logger.info("  Retrieved first %d Tweets for user '%s'" % (len(tweets),user_id))
+        return tweets
+
+    def get_all_timeline_tweets_for_id_since(self, user_id, since_id,max_id=None):
+        """
+        Retrieves all Tweets from a user's timeline since the specified Tweet ID
+        based on this procedure:
+          https://dev.twitter.com/docs/working-with-timelines
+        """
+        # This function stops requesting additional Tweets from the timeline only
+        # if the most recent number of Tweets retrieved is less than 100.
+        #
+        # While we request 200 Tweets with each API, the number of Tweets we retrieve
+        # will often be less than 200 because, for example, "suspended or deleted
+        # content is removed after the count has been applied."  See the API
+        # documentation for the 'count' parameter for more info:
+        #   https://dev.twitter.com/docs/api/1.1/get/statuses/user_timeline
+        MINIMUM_TWEETS_REQUIRED_FOR_MORE_API_CALLS = 100
+
+        self._logger.info("Retrieving Tweets for user_id '%s'" % user_id)
+
+        # Retrieve first batch of Tweets
+        if not max_id:
+            tweets = self._twitter_endpoint.get_data(user_id=user_id, count=200, since_id=since_id)
+            self._logger.info("  Retrieved first %d Tweets for user '%s'" % (len(tweets), user_id))
+
+            if len(tweets) < MINIMUM_TWEETS_REQUIRED_FOR_MORE_API_CALLS:
+                return tweets
+        else:
+            tweets = []
+
+        # Retrieve rest of Tweets
+        while 1:
+            if tweets: #Will only trigger 
+                max_id = int(tweets[-1]['id']) - 1
+            more_tweets = self._twitter_endpoint.get_data(user_id=user_id, count=200, max_id=max_id, since_id=since_id)
+            tweets += more_tweets
+            self._logger.info("  Retrieved %d Tweets for user_id '%s' with max_id='%d'" % (len(more_tweets), screen_name, user_id))
+
+            if len(more_tweets) < MINIMUM_TWEETS_REQUIRED_FOR_MORE_API_CALLS:
+                return tweets
+
     def get_all_timeline_tweets_for_id_between_ids(self, user_id, since_id, max_id):
         """
         Retrieves all Tweets from a user's timeline since the specified Tweet ID
@@ -254,6 +363,11 @@ class FindFriendFollowers:
                    self._follower_endpoint.api_calls_remaining_for_current_window,
                    self._user_lookup_endpoint.api_calls_remaining_for_current_window)
 
+
+###
+### Accessing data by screen_name
+###
+
     def get_ff_ids_for_screen_name(self, screen_name):
         """
         Returns Twitter user IDs for users who are both Friends and Followers
@@ -296,6 +410,52 @@ class FindFriendFollowers:
                 ff_screen_names.append(user[u'screen_name'])
         return ff_screen_names
 
+###
+### Accessing data by user_id
+###
+
+    def get_ff_ids_for_screen_name(self, user_id):
+        """
+        Returns Twitter user IDs for users who are both Friends and Followers
+        for the specified `user_id`.
+
+        The 'friends/ids' and 'followers/ids' endpoints return at most 5000 IDs,
+        so IF a user has more than 5000 friends or followers, this function WILL
+        NOT RETURN THE CORRECT ANSWER
+        """
+        try:
+            friend_ids = self._friend_endpoint.get_data(user_id=user_id)[u'ids']
+            follower_ids = self._follower_endpoint.get_data(user_id=user_id)[u'ids']
+        except TwythonError as e:
+            if e.error_code == 404:
+                self._logger.warn("HTTP 404 error - Most likely, Twitter user '%s' no longer exists" % user_id)
+            elif e.error_code == 401:
+                self._logger.warn("HTTP 401 error - Most likely, Twitter user '%s' no longer publicly accessible" % user_id)
+            else:
+                # Unhandled exception
+                raise e
+            friend_ids = []
+            follower_ids = []
+
+        return list(set(friend_ids).intersection(set(follower_ids)))
+
+
+    def get_ff_screen_names_for_id(self, user_id):
+        """
+        Returns Twitter screen names for users who are both Friends and Followers
+        for the specified `user_id`.
+        """
+        ff_ids = self.get_ff_ids_for_screen_name(screen_name)
+
+        ff_screen_names = []
+        # The Twitter API allows us to look up info for 100 users at a time
+        for ff_id_subset in grouper(ff_ids, 100):
+            user_ids = ','.join([str(id) for id in ff_id_subset if id is not None])
+            users = self._user_lookup_endpoint.get_data(user_id=user_ids, entities=False)
+            for user in users:
+                ff_screen_names.append(user[u'screen_name'])
+        return ff_screen_names
+
 
 class FindFollowers:
     def __init__(self, twython, logger=None):
@@ -318,6 +478,10 @@ class FindFollowers:
             self._user_lookup_endpoint.update_rate_limit_status()
         return min(self._follower_endpoint.api_calls_remaining_for_current_window,
                    self._user_lookup_endpoint.api_calls_remaining_for_current_window)
+
+###
+### Access Users by `screen_name`
+###
 
     def get_follower_ids_for_screen_name(self, screen_name):
         """
@@ -349,6 +513,50 @@ class FindFollowers:
         of the specified screen_name.
         """
         follower_ids = self.get_follower_ids_for_screen_name(screen_name)
+
+        follower_screen_names = []
+        # The Twitter API allows us to look up info for 100 users at a time
+        for follower_id_subset in grouper(follower_ids, 100):
+            user_ids = ','.join([str(id) for id in follower_id_subset if id is not None])
+            users = self._user_lookup_endpoint.get_data(user_id=user_ids, entities=False)
+            for user in users:
+                follower_screen_names.append(user[u'screen_name'])
+        return follower_screen_names
+
+###
+### Access Users by `user_id`
+###
+
+    def get_follower_ids_for_id(self, user_id):
+        """
+        Returns Twitter user IDs for users who are Followers of
+        the specified user_id.
+
+        The 'followers/ids' endpoint return at most 5000 IDs,
+        so IF a user has more than 5000 followers, this function WILL
+        NOT RETURN THE CORRECT ANSWER
+        """
+        try:
+            follower_ids = self._follower_endpoint.get_data(user_id=user_id)[u'ids']
+        except TwythonError as e:
+            if e.error_code == 404:
+                self._logger.warn("HTTP 404 error - Most likely, Twitter user_id '%s' no longer exists" % user_id)
+            elif e.error_code == 401:
+                self._logger.warn("HTTP 401 error - Most likely, Twitter user_id '%s' no longer publicly accessible" % user_id)
+            else:
+                # Unhandled exception
+                raise e
+            follower_ids = []
+
+        return follower_ids
+
+
+    def get_follower_screen_names_for_id(self, user_id):
+        """
+        Returns Twitter screen names for users who are Followers
+        of the specified `user_id`.
+        """
+        follower_ids = self.get_follower_ids_for_screen_name(user_id)
 
         follower_screen_names = []
         # The Twitter API allows us to look up info for 100 users at a time
