@@ -722,14 +722,9 @@ class ListMembership:
 
     def get_list_memberships_for_screen_name(self, screen_name):
         """
-        UPDATE COMMENT
+        Returns full listings for any lists this `screen_name` was added to.
 
-        Returns Twitter user IDs for users who are both Friends and Followers
-        for the specified screen_name.
-
-        The 'friends/ids' and 'followers/ids' endpoints return at most 5000 IDs,
-        so IF a user has more than 5000 friends or followers, this function WILL
-        NOT RETURN THE CORRECT ANSWER
+        Unclear what will happen if `screen_name` is a member of many many lists.
         """
         try:
             list_memberships = self._lists_memberships_endpoint.get_data(screen_name=screen_name)[u'lists']
@@ -752,14 +747,19 @@ class ListMembership:
 
     def get_list_membership_ids_for_screen_name( self, screen_name):
         """
-        UPDATE COMMENT
+        Returns the list `id`s for each list that `screen_name` is a member of.
         """
         return [x['id'] for x in self.get_list_memberships_for_screen_name(screen_name)]
 
     def get_list_members_by_list_id( self, list_id):
+        """
+        Returns the users who are members of list `list_id`.
+        This output is cursored, which is not currently implemented, so only the
+        first 5000 members of each list are returned.
+        TODO: add cursor paging functionality.
+        """
         # Retrieve first batch of members
         response = self._lists_members_endpoint.get_data(list_id=list_id, count=5000 )
-        #TODO: go past first page of cursor
         members = response['users']
         self._logger.info("  Retrieved first %d Members for List '%s'" % (len(members), list_id))
 
