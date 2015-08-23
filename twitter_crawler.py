@@ -567,6 +567,113 @@ class FindFollowers:
                 follower_screen_names.append(user[u'screen_name'])
         return follower_screen_names
 
+
+class FindFollowees:
+    def __init__(self, twython, logger=None):
+        if logger is None:
+            self._logger = get_console_info_logger()
+        else:
+            self._logger = logger
+
+        self._followee_endpoint = RateLimitedTwitterEndpoint(twython, "followers/ids", logger=self._logger)
+        self._user_lookup_endpoint = RateLimitedTwitterEndpoint(twython, "users/lookup", logger=self._logger)
+        self.calls_remaining = 1
+        self.last_checked_status = dt.datetime.now()
+
+    def api_calls_remaining(self):
+        now = dt.datetime.now()
+        #If it's been more than 7 minutes, go check the status before blindly returning
+        if (now - self.last_checked_status) > dt.timedelta(minutes=7):
+            self.last_checked_status = dt.datetime.now()
+            self._followee_endpoint.update_rate_limit_status()
+            self._user_lookup_endpoint.update_rate_limit_status()
+        return min(self._followee_endpoint.api_calls_remaining_for_current_window,
+                   self._user_lookup_endpoint.api_calls_remaining_for_current_window)
+
+###
+### Access Users by `screen_name`
+###
+
+    def get_followee_ids_for_screen_name(self, screen_name):
+        """
+        Returns Twitter user IDs for users who `screen_name` follows.
+
+        The 'followers/ids' endpoint return at most 5000 IDs,
+        so IF a user has more than 5000 followers, this function WILL
+        NOT RETURN THE CORRECT ANSWER
+        """
+        try:
+            followee_ids = self._followee_endpoint.get_data(screen_name=screen_name)[u'ids']
+        except TwythonError as e:
+            if e.error_code == 404:
+                self._logger.warn("HTTP 404 error - Most likely, Twitter user '%s' no longer exists" % screen_name)
+            elif e.error_code == 401:
+                self._logger.warn("HTTP 401 error - Most likely, Twitter user '%s' no longer publicly accessible" % screen_name)
+            else:
+                # Unhandled exception
+                raise e
+            followee_ids = []
+
+        return followee_ids
+
+
+    def get_followee_screen_names_for_screen_name(self, screen_name):
+        """
+        Returns Twitter screen_names for users who `screen_name` follows.
+        """
+        followee_ids = self.get_followee_ids_for_screen_name(screen_name)
+
+        followee_screen_names = []
+        # The Twitter API allows us to look up info for 100 users at a time
+        for followee_id_subset in grouper(followee_ids, 100):
+            user_ids = ','.join([str(id) for id in followee_id_subset if id is not None])
+            users = self._user_lookup_endpoint.get_data(user_id=user_ids, entities=False)
+            for user in users:
+                followee_screen_names.append(user[u'screen_name'])
+        return followee_screen_names
+
+###
+### Access Users by `user_id`
+###
+
+    def get_followee_ids_for_id(self, user_id):
+        """
+        Returns Twitter user IDs for users who `user_id` follows.
+
+        The 'followers/ids' endpoint return at most 5000 IDs,
+        so IF a user has more than 5000 followers, this function WILL
+        NOT RETURN THE CORRECT ANSWER
+        """
+        try:
+            followee_ids = self._followee_endpoint.get_data(user_id=user_id)[u'ids']
+        except TwythonError as e:
+            if e.error_code == 404:
+                self._logger.warn("HTTP 404 error - Most likely, Twitter user_id '%s' no longer exists" % user_id)
+            elif e.error_code == 401:
+                self._logger.warn("HTTP 401 error - Most likely, Twitter user_id '%s' no longer publicly accessible" % user_id)
+            else:
+                # Unhandled exception
+                raise e
+            followee_ids = []
+
+        return followee_ids
+
+
+    def get_followee_screen_names_for_id(self, user_id):
+        """
+        Returns Twitter screen names for users who `user_id` follows.
+        """
+        followee_ids = self.get_followee_ids_for_screen_name(user_id)
+
+        followee_screen_names = []
+        # The Twitter API allows us to look up info for 100 users at a time
+        for followee_id_subset in grouper(followee_ids, 100):
+            user_ids = ','.join([str(id) for id in followee_id_subset if id is not None])
+            users = self._user_lookup_endpoint.get_data(user_id=user_ids, entities=False)
+            for user in users:
+                followee_screen_names.append(user[u'screen_name'])
+        return followee_screen_names
+
 class RateLimitedTwitterEndpoint:
     """
     Class used to retrieve data from a Twitter API endpoint without
@@ -746,3 +853,9 @@ def get_follower_crawler( twython, logger):
     from `get_connection`"""
     follower_finder = FindFollowers(twython, logger)
     return follower_finder
+
+def get_followee_crawler( twython, logger):
+    """Requires a Twython instance passed to it, obtain such
+    from `get_connection`"""
+    followee_finder = FindFollowees(twython, logger)
+    return followee_finder
