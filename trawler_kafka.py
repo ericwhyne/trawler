@@ -38,6 +38,14 @@ class TrawlerKafka:
         Send `tweets` in bulk as a single kafka message.
         """
         self.producer.produce(json.dumps(tweets))
+
+    def get_data(self):
+        """
+        Get and reconstitute tweets from a kafka queue
+        """
+        self.consumer.consume()
+
+
         
 if __name__ == '__main__':
     """
@@ -46,7 +54,6 @@ if __name__ == '__main__':
 
     trawler_kafka = TrawlerKafka( 'localhost',9092)
     tweets = [{'text':'tweet tweet'},{'text':'tweety tweet tweet'},{'text':'tweety tweet tweety tweet'}]
-    trawler_kafka.send_individual_tweets(tweets)
-    trawler_kafka.send_bulk_tweets(tweets)
-    trawler_kafka.send_bulk_tweets(tweets)
-
+    for i in range(10):
+        trawler_kafka.send_individual_tweets(tweets)
+    
