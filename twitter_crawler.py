@@ -100,6 +100,20 @@ def save_tweets_to_json_file(tweets, json_filename, gzip_out=False):
             json_file.write("%s\n" % json.dumps(tweet))
         json_file.close()
 
+def tweets_to_kafka_stream(tweets, channel='trawler', kafka_producer=None,
+                                host=None, port=None):
+    """
+    Sends each tweet in `tweets` as a message on the Kafka channel `channel`.
+    Requires either a `kafka_producer`, an instance of `kafka.SimpleProducer` or
+    the `host` and `port` upon which to connect.
+    """
+    if not kafka_producer:
+        from kafka import KafkaClient, SimpleProducer
+        kafka_client = KafkaClient('%s:%s' % (host,port) )
+        kafka_producer = SimpleProducer(kafka_client)
+
+    for tweet in tweets:
+        producer.send_messages(channel, json.dums(tweet))
 
 
 ###  Classes  ###
