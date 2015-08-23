@@ -688,6 +688,85 @@ class FindFollowees:
                 followee_screen_names.append(user[u'screen_name'])
         return followee_screen_names
 
+
+
+class ListMembership:
+    def __init__(self, twython, logger=None):
+        if logger is None:
+            self._logger = get_console_info_logger()
+        else:
+            self._logger = logger
+
+        self._lists_memberships_endpoint = RateLimitedTwitterEndpoint(twython, "lists/memberships", logger=self._logger)
+        self._lists_members_endpoint = RateLimitedTwitterEndpoint(twython, "lists/members", logger=self._logger)
+        self._user_lookup_endpoint = RateLimitedTwitterEndpoint(twython, "users/lookup", logger=self._logger)
+        self.calls_remaining = 1
+        self.last_checked_status = dt.datetime.now()
+
+    def api_calls_remaining(self):
+        now = dt.datetime.now()
+        #If it's been more than 7 minutes, go check the status before blindly returning
+        if (now - self.last_checked_status) > dt.timedelta(minutes=7):
+            self.last_checked_status = dt.datetime.now()
+            self._lists_memberships_endpoint.update_rate_limit_status()
+            self._lists_members_endpoint.update_rate_limit_status()
+            self._user_lookup_endpoint.update_rate_limit_status()
+        return min(self._lists_memberships_endpoint.api_calls_remaining_for_current_window,
+                   self._lists_members_endpoint.api_calls_remaining_for_current_window,
+                   self._user_lookup_endpoint.api_calls_remaining_for_current_window)
+
+
+###
+### Accessing data by screen_name
+###
+
+    def get_list_memberships_for_screen_name(self, screen_name):
+        """
+        UPDATE COMMENT
+
+        Returns Twitter user IDs for users who are both Friends and Followers
+        for the specified screen_name.
+
+        The 'friends/ids' and 'followers/ids' endpoints return at most 5000 IDs,
+        so IF a user has more than 5000 friends or followers, this function WILL
+        NOT RETURN THE CORRECT ANSWER
+        """
+        try:
+            list_memberships = self._lists_memberships_endpoint.get_data(screen_name=screen_name)[u'lists']
+            #follower_ids = self._follower_endpoint.get_data(screen_name=screen_name)[u'ids']
+        except TwythonError as e:
+            print "Error:", e.error_code
+            print e
+            raise e
+            """
+            if e.error_code == 404:
+                self._logger.warn("HTTP 404 error - Most likely, Twitter user '%s' no longer exists" % screen_name)
+            elif e.error_code == 401:
+                self._logger.warn("HTTP 401 error - Most likely, Twitter user '%s' no longer publicly accessible" % screen_name)
+            else:
+                # Unhandled exception
+                raise e
+            """
+            list_memberships = []
+        return list_memberships
+
+    def get_list_membership_ids_for_screen_name( self, screen_name):
+        """
+        UPDATE COMMENT
+        """
+        return [x['id'] for x in self.get_list_memberships_for_screen_name(screen_name)]
+
+    def get_list_members_by_list_id( self, list_id):
+        # Retrieve first batch of members
+        response = self._lists_members_endpoint.get_data(list_id=list_id, count=5000 )
+        #TODO: go past first page of cursor
+        members = response['users']
+        self._logger.info("  Retrieved first %d Members for List '%s'" % (len(members), list_id))
+
+        return members
+
+
+
 class RateLimitedTwitterEndpoint:
     """
     Class used to retrieve data from a Twitter API endpoint without
@@ -850,26 +929,32 @@ def get_connection( consumer_key, consumer_secret):
     twython = Twython(consumer_key, access_token=ACCESS_TOKEN)
     return twython
 
-def get_timeline_crawler( twython, logger):
+def get_timeline_crawler( twython, logger=None):
     """Requires a Twython instance passed to it, obtain such
     from `get_connection`"""
     timeline_crawler = CrawlTwitterTimelines(twython, logger)
     return timeline_crawler
 
-def get_friend_follower_crawler( twython, logger):
+def get_friend_follower_crawler( twython, logger=None):
     """Requires a Twython instance passed to it, obtain such
     from `get_connection`"""
     ff_finder = FindFriendFollowers(twython, logger)
     return ff_finder
 
-def get_follower_crawler( twython, logger):
+def get_follower_crawler( twython, logger=None):
     """Requires a Twython instance passed to it, obtain such
     from `get_connection`"""
     follower_finder = FindFollowers(twython, logger)
     return follower_finder
 
-def get_followee_crawler( twython, logger):
+def get_followee_crawler( twython, logger=None):
     """Requires a Twython instance passed to it, obtain such
     from `get_connection`"""
     followee_finder = FindFollowees(twython, logger)
     return followee_finder
+
+def get_list_membership_crawler(twython, logger=None):
+    """Requires a Twython instance passed to it, obtain such
+    from `get_connection`"""
+    membership_finder = ListMembership(twython, logger)
+    return membership_finder
