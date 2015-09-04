@@ -307,7 +307,7 @@ class CrawlTwitterTimelines:
                 max_id = int(tweets[-1]['id']) - 1
             more_tweets = self._twitter_endpoint.get_data(user_id=user_id, count=200, max_id=max_id, since_id=since_id)
             tweets += more_tweets
-            self._logger.info("  Retrieved %d Tweets for user_id '%s' with max_id='%d'" % (len(more_tweets), screen_name, user_id))
+            self._logger.info("  Retrieved %d Tweets for user_id '%s' with max_id='%d'" % (len(more_tweets), user_id, since_id))
 
             if len(more_tweets) < MINIMUM_TWEETS_REQUIRED_FOR_MORE_API_CALLS:
                 return tweets
