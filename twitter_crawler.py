@@ -688,7 +688,38 @@ class FindFollowees:
                 followee_screen_names.append(user[u'screen_name'])
         return followee_screen_names
 
+class UserLookup:
+    def __init__(self, twython, logger=None):
+        if logger is None:
+            self._logger = get_console_info_logger()
+        else:
+            self._logger = logger
 
+        self._user_lookup_endpoint = RateLimitedTwitterEndpoint(twython, "users/lookup", logger=self._logger)
+        self.calls_remaining = 1
+        self.last_checked_status = dt.datetime.now()
+
+    def api_calls_remaining(self):
+        now = dt.datetime.now()
+        #If it's been more than 7 minutes, go check the status before blindly returning
+        if (now - self.last_checked_status) > dt.timedelta(minutes=7):
+            self.last_checked_status = dt.datetime.now()
+            self._user_lookup_endpoint.update_rate_limit_status()
+        return min(self._user_lookup_endpoint.api_calls_remaining_for_current_window)
+
+    def lookup_users(self, twitter_ids):
+        """
+        Returns the user lookup for the users specified by `twitter_id`
+        To maximize throughput of Twitter API, this looks up 100 users with a 
+        single call. 
+        """
+        # The Twitter API allows us to look up info for 100 users at a time
+        amassed_users = []
+        for id_subset in grouper(twitter_ids, 100):
+            user_ids = ','.join([str(id) for id in id_subset if id is not None])
+            users = self._user_lookup_endpoint.get_data(user_id=user_ids, entities=False)
+            amassed_users += users
+        return amassed_users
 
 class ListMembership:
     def __init__(self, twython, logger=None):
