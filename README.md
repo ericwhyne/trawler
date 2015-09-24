@@ -1,5 +1,9 @@
-trawler
+# trawler
 =======
+
+To get started, look at the save_*_.py files. They are pretty self explanatory.
+
+## Notes 
 
 Most of the interesting functionality is in the class
 RateLimitedTwitterEndpoint. The class is a wrapper around the (Twython
